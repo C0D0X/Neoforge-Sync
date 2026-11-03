@@ -69,6 +69,13 @@ public final class GitHubReleaseGateway implements ReleasePublisher.Gateway {
                 HttpRequest.BodyPublishers.noBody(), "application/json", 204);
     }
 
+    /** Removes a known temporary sync tag after an isolated release test. */
+    public void deleteTestTag(String tag) throws IOException {
+        if (!tag.matches("sync-[a-f0-9-]{36}")) throw new IOException("Invalid test tag");
+        send("DELETE", URI.create("https://api.github.com/repos/C0D0X/Neoforge-Sync/git/refs/tags/" + tag),
+                HttpRequest.BodyPublishers.noBody(), "application/json", 204);
+    }
+
     private static void checkId(long id) throws IOException {
         if (id <= 0) throw new IOException("Invalid release ID");
     }

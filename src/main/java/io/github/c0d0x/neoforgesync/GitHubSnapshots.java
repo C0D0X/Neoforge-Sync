@@ -22,10 +22,40 @@ public final class GitHubSnapshots {
         HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER)
                 .connectTimeout(Duration.ofSeconds(20)).build();
         Candidate best = null;
+        // Freshly published releases can briefly be absent from GitHub's public listing.
+        for (int attempt = 0; attempt < 4; attempt++) {
+            best = findLatest(client);
+            if (best != null) break;
+            if (attempt < 3) {
+                try { Thread.sleep(1000); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IOException("Release check interrupted", e); }
+            }
+        }
+        if (best == null) return Optional.empty();
+        URI url = URI.create("https://github.com/C0D0X/Neoforge-Sync/releases/download/" + best.tag() + "/manifest.json");
+        try (var input = new GitHubDownloads().open(url)) {
+            byte[] bytes = input.readNBytes(2 * 1024 * 1024 + 1);
+            if (bytes.length > 2 * 1024 * 1024) throw new IOException("Sync manifest too large");
+            SyncManifest manifest = SyncManifest.parse(new String(bytes, StandardCharsets.UTF_8));
+            String prefix = "/C0D0X/Neoforge-Sync/releases/download/" + best.tag() + "/";
+            for (var mod : manifest.mods()) {
+                if (!mod.url().getRawPath().startsWith(prefix)) throw new IOException("Manifest references a different release");
+            }
+            if (manifest.updater() != null && !manifest.updater().url().getRawPath().startsWith(prefix)) {
+                throw new IOException("Updater references a different release");
+            }
+            return Optional.of(manifest);
+        }
+    }
+
+    private static Candidate findLatest(HttpClient client) throws IOException {
+        Candidate best = null;
         boolean finished = false;
+        String requestId = java.util.UUID.randomUUID().toString();
         for (int page = 1; page <= 10; page++) {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(API + page)).timeout(Duration.ofSeconds(30))
-                    .header("User-Agent", "NeoForge-Sync/1").header("Accept", "application/vnd.github+json").GET().build();
+            HttpRequest request = HttpRequest.newBuilder(URI.create(API + page + "&sync_check=" + requestId)).timeout(Duration.ofSeconds(30))
+                    .header("User-Agent", "NeoForge-Sync/1").header("Accept", "application/vnd.github+json")
+                    .header("Cache-Control", "no-cache").GET().build();
             HttpResponse<java.io.InputStream> response;
             try {
                 response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
@@ -43,27 +73,23 @@ public final class GitHubSnapshots {
             JsonArray releases;
             try { releases = JsonParser.parseString(text).getAsJsonArray(); }
             catch (RuntimeException e) { throw new IOException("Invalid GitHub release listing", e); }
-            for (var element : releases) {
-                Candidate candidate = candidate(element.getAsJsonObject());
-                if (candidate != null && (best == null || candidate.published().isAfter(best.published()))) best = candidate;
-            }
+            best = newest(best, releases);
             if (releases.size() < 100) { finished = true; break; }
         }
         if (!finished) throw new IOException("Too many releases to check safely");
-        if (best == null) return Optional.empty();
-        URI url = URI.create("https://github.com/C0D0X/Neoforge-Sync/releases/download/" + best.tag() + "/manifest.json");
-        try (var input = new GitHubDownloads().open(url)) {
-            byte[] bytes = input.readNBytes(2 * 1024 * 1024 + 1);
-            if (bytes.length > 2 * 1024 * 1024) throw new IOException("Sync manifest too large");
-            SyncManifest manifest = SyncManifest.parse(new String(bytes, StandardCharsets.UTF_8));
-            String prefix = "/C0D0X/Neoforge-Sync/releases/download/" + best.tag() + "/";
-            for (var mod : manifest.mods()) {
-                if (!mod.url().getRawPath().startsWith(prefix)) throw new IOException("Manifest references a different release");
+        return best;
+    }
+
+    static Candidate newest(Candidate best, JsonArray releases) throws IOException {
+        try {
+            for (var element : releases) {
+                Candidate next = candidate(element.getAsJsonObject());
+                if (next != null && (best == null || next.published().isAfter(best.published())
+                        || (next.published().equals(best.published()) && next.tag().compareTo(best.tag()) > 0))) best = next;
             }
-            if (manifest.updater() != null && !manifest.updater().url().getRawPath().startsWith(prefix)) {
-                throw new IOException("Updater references a different release");
-            }
-            return Optional.of(manifest);
+            return best;
+        } catch (IllegalStateException | ClassCastException e) {
+            throw new IOException("Invalid GitHub release listing", e);
         }
     }
 
