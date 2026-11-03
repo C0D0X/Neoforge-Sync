@@ -31,6 +31,7 @@ public final class NeoForgeSync {
     }
 
     private void runStartup(Path instance) {
+        LOGGER.info("NeoForge Sync startup check started");
         try {
             boolean needsRecovery = Files.exists(instance.resolve(".neoforgesync/pending.json"), java.nio.file.LinkOption.NOFOLLOW_LINKS);
             String ownJar = !needsRecovery ? ownJar(instance) : null;
@@ -39,6 +40,7 @@ public final class NeoForgeSync {
             if (outcome instanceof StartupWorkflow.Recovery) {
                 notice.set(new Notice("recover", "A previous sync was interrupted. Minecraft will close to restore your files."));
             } else if (outcome instanceof StartupWorkflow.Receiving receiving) {
+                LOGGER.info("Receiver startup result: {}", receiving.result().getClass().getSimpleName());
                 if (receiving.result() instanceof Receiver.Ready ready) {
                     notice.set(new Notice(ready.staging().getFileName().toString(), "Mod changes are ready. Minecraft will close to apply them; open the pack again in CurseForge."));
                 } else if (receiving.result() instanceof Receiver.VersionMismatch mismatch) {
