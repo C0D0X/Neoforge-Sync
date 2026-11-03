@@ -2,6 +2,7 @@ package io.github.c0d0x.neoforgesync;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import com.mojang.logging.LogUtils;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.MultiLineLabel;
@@ -38,6 +39,7 @@ final class SyncShutdownScreen extends Screen {
             HelperLauncher.launch(instance, stage);
             minecraft.stop();
         } catch (IOException e) {
+            LogUtils.getLogger().error("Could not start NeoForge Sync post-exit helper", e);
             minecraft.setScreen(new ConfirmScreen(ignored -> minecraft.setScreen(previous), Component.literal("NeoForge Sync"),
                     Component.literal("Could not start the sync helper. No mods were changed. " + e.getMessage()),
                     Component.literal("Continue"), Component.literal("Continue")));

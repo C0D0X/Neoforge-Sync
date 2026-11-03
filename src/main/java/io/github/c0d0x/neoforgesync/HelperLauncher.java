@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.net.URI;
 
 /** Starts the bundled helper using the running Java and Gson locations. */
 public final class HelperLauncher {
@@ -52,6 +53,9 @@ public final class HelperLauncher {
     private static Path codeLocation(Class<?> type) throws IOException {
         try {
             var source = type.getProtectionDomain().getCodeSource();
+            if (source != null && source.getLocation() != null && source.getLocation().getProtocol().equals("union")) {
+                return unionJarPath(source.getLocation().toExternalForm());
+            }
             if ((source == null || source.getLocation() == null || !source.getLocation().getProtocol().equals("file"))
                     && type == PostExitHelper.class) {
                 var info = net.neoforged.fml.ModList.get().getModFileById(NeoForgeSync.MOD_ID);
@@ -63,6 +67,19 @@ public final class HelperLauncher {
             return Path.of(source.getLocation().toURI());
         } catch (URISyntaxException | SecurityException e) {
             throw new IOException("Cannot locate helper dependencies", e);
+        }
+    }
+
+    static Path unionJarPath(String location) throws IOException {
+        // SecureJarHandler exposes ordinary JARs as union:/path/file.jar%23<id>!/
+        var match = java.util.regex.Pattern.compile("^union:(/.*\\.jar)%23[0-9]+!/$").matcher(location);
+        if (!match.matches()) throw new IOException("Unsupported NeoForge union JAR location");
+        try {
+            Path path = Path.of(URI.create("file:" + match.group(1)));
+            if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) throw new IOException("NeoForge union JAR is missing");
+            return path;
+        } catch (IllegalArgumentException | SecurityException e) {
+            throw new IOException("Cannot resolve NeoForge union JAR", e);
         }
     }
 }
